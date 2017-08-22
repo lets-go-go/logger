@@ -30,7 +30,7 @@ type Config struct {
 }
 
 type LEVEL int
-type UNIT int
+type UNIT int64
 
 type OutputType int
 type RollingType int
