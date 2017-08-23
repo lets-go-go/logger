@@ -13,21 +13,6 @@ import (
 	"io/ioutil"
 )
 
-// Config log配置
-type Config struct {
-	Level                  LEVEL         `json:"Level"`
-	OutputType             OutputType    `json:"OutputType"`
-	LogFileRollingType     RollingType   `json:"LogFileRollingType"`
-	LogFileOutputDir       string        `json:"LogFileOutputDir"`
-	LogFileName            string        `json:"LogFileName"`
-	LogFileNameDatePattern string        `json:"LogFileNameDatePattern"`
-	LogFileNameExt         string        `json:"LogFileNameExt"`
-	LogFileMaxCount        int32         `json:"LogFileMaxCount"`
-	LogFileMaxSize         int64         `json:"LogFileMaxSize"`
-	LogFileMaxSizeUnit     string        `json:"LogFileMaxSizeUnit"`
-	LogFileScanInterval    time.Duration `json:"LogFileScanInterval"` // 秒
-}
-
 type LEVEL int
 type UNIT int64
 
@@ -63,6 +48,47 @@ const (
 	TB
 )
 
+var (
+	// 日志前缀，将写在日期和等级后面，日志内容前面
+	prefixes map[LEVEL]string
+	// 日志大小单位
+	units map[string]UNIT
+)
+
+func init() {
+	prefixes = map[LEVEL]string{
+		TRACE: "[TRACE]",
+		DEBUG: "[DEBUG]",
+		INFO:  "[INFO ]",
+		WARN:  "[WARN ]",
+		ERROR: "[ERROR]",
+		FATAL: "[FATAL]",
+	}
+
+	units = map[string]UNIT{
+		"KB": KB,
+		"MB": MB,
+		"GB": GB,
+		"TB": TB,
+	}
+}
+
+// Config log配置
+type Config struct {
+	Level                  LEVEL         `json:"Level"`
+	OutputType             OutputType    `json:"OutputType"`
+	LogFileRollingType     RollingType   `json:"LogFileRollingType"`
+	LogFileOutputDir       string        `json:"LogFileOutputDir"`
+	LogFileName            string        `json:"LogFileName"`
+	LogFileNameDatePattern string        `json:"LogFileNameDatePattern"`
+	LogFileNameExt         string        `json:"LogFileNameExt"`
+	LogFileMaxCount        int32         `json:"LogFileMaxCount"`
+	LogFileMaxSize         int64         `json:"LogFileMaxSize"`
+	LogFileMaxSizeUnit     string        `json:"LogFileMaxSizeUnit"`
+	LogFileScanInterval    time.Duration `json:"LogFileScanInterval"` // 秒
+	Sync                   bool          `json:"Sync"`                // 是否同步写
+}
+
 // DEFAULT_CONFIG 默认配置
 var DEFAULT_CONFIG = &Config{
 	Level:                  INFO,
@@ -75,7 +101,13 @@ var DEFAULT_CONFIG = &Config{
 	LogFileMaxCount:        5,
 	LogFileMaxSize:         5,
 	LogFileMaxSizeUnit:     "MB",
-	LogFileScanInterval:    1 * time.Second,
+	LogFileScanInterval:    1,
+	Sync:                   true,
+}
+
+type logContent struct {
+	level LEVEL
+	txt   string
 }
 
 // Logger Logger
@@ -84,15 +116,11 @@ type Logger struct {
 	// 内置logger
 	builtInLoggers map[LEVEL]*log.Logger
 	// 日志队列
-	// c chan string
+	c chan logContent
 	// 当前日志文件
 	f *os.File
 	// 检查文件monitor是否在运行
 	isMonitorRunning bool
-	// 日志前缀，将写在日期和等级后面，日志内容前面
-	prefixes map[LEVEL]string
-	// 日志大小单位
-	units map[string]UNIT
 
 	// fileDate 按天rolling的时间
 	fileDate string
@@ -123,32 +151,37 @@ func NewLoggerWithConfig(config *Config) *Logger {
 
 func (l *Logger) init() {
 
-	l.prefixes = map[LEVEL]string{
-		TRACE: "[TRACE]",
-		DEBUG: "[DEBUG]",
-		INFO:  "[INFO ]",
-		WARN:  "[WARN ]",
-		ERROR: "[ERROR]",
-		FATAL: "[FATAL]",
-	}
+	flags := log.Ldate | log.Lmicroseconds
 
-	l.units = map[string]UNIT{
-		"KB": KB,
-		"MB": MB,
-		"GB": GB,
-		"TB": TB,
+	if l.config.Sync {
+		flags = flags | log.Lshortfile
 	}
-
-	flags := log.Ldate | log.Lmicroseconds | log.Lshortfile
 
 	l.builtInLoggers = map[LEVEL]*log.Logger{
-		TRACE: log.New(os.Stdout, l.prefixes[TRACE], flags),
-		DEBUG: log.New(os.Stdout, l.prefixes[DEBUG], flags),
-		INFO:  log.New(os.Stdout, l.prefixes[INFO], flags),
-		WARN:  log.New(os.Stdout, l.prefixes[WARN], flags),
-		ERROR: log.New(os.Stdout, l.prefixes[ERROR], flags),
-		FATAL: log.New(os.Stdout, l.prefixes[FATAL], flags),
+		TRACE: log.New(os.Stdout, prefixes[TRACE], flags),
+		DEBUG: log.New(os.Stdout, prefixes[DEBUG], flags),
+		INFO:  log.New(os.Stdout, prefixes[INFO], flags),
+		WARN:  log.New(os.Stdout, prefixes[WARN], flags),
+		ERROR: log.New(os.Stdout, prefixes[ERROR], flags),
+		FATAL: log.New(os.Stdout, prefixes[FATAL], flags),
 	}
+
+	if !l.config.Sync {
+		l.c = make(chan logContent, 5000)
+		// log write
+		go func() {
+			for {
+				select {
+				case content := <-l.c:
+					{
+						l.builtInLoggers[content.level].Output(3, content.txt)
+					}
+
+				}
+			}
+		}()
+	}
+
 }
 
 func (l *Logger) setConfigStr(configStr string) {
@@ -161,7 +194,7 @@ func (l *Logger) setConfigStr(configStr string) {
 	}
 
 	unit := strings.ToUpper(config.LogFileMaxSizeUnit)
-	config.LogFileMaxSize = config.LogFileMaxSize * int64(l.units[unit])
+	config.LogFileMaxSize = config.LogFileMaxSize * int64(units[unit])
 
 	config.LogFileScanInterval = config.LogFileScanInterval * time.Second
 	l.setConfig(&config)
@@ -169,6 +202,10 @@ func (l *Logger) setConfigStr(configStr string) {
 
 func (l *Logger) setConfig(c *Config) {
 	l.config = c
+
+	unit := strings.ToUpper(l.config.LogFileMaxSizeUnit)
+	l.config.LogFileMaxSize = l.config.LogFileMaxSize * int64(units[unit])
+	l.config.LogFileScanInterval = l.config.LogFileScanInterval * time.Second
 	l.startFileCheckMonitor()
 }
 
@@ -187,7 +224,11 @@ func (l *Logger) Output(level LEVEL, txt string) {
 				l.makeFile()
 			}
 
-			l.builtInLoggers[level].Output(3, txt)
+			if l.config.Sync {
+				l.builtInLoggers[level].Output(3, txt)
+			} else {
+				l.c <- logContent{level, txt}
+			}
 		}
 	}
 }
@@ -271,6 +312,7 @@ func (l *Logger) checkFile() {
 			return
 		}
 		if info.Size() >= l.config.LogFileMaxSize {
+			log.Println("============= need recreate ==========", info.Size())
 			needRecreate = true
 		}
 	}
