@@ -2,10 +2,13 @@ package logger
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"os"
+	"path"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -82,7 +85,7 @@ type Config struct {
 	LogFileName            string        `json:"LogFileName"`
 	LogFileNameDatePattern string        `json:"LogFileNameDatePattern"`
 	LogFileNameExt         string        `json:"LogFileNameExt"`
-	LogFileMaxCount        int32         `json:"LogFileMaxCount"`
+	LogFileMaxCount        int           `json:"LogFileMaxCount"`
 	LogFileMaxSize         int64         `json:"LogFileMaxSize"`
 	LogFileMaxSizeUnit     string        `json:"LogFileMaxSizeUnit"`
 	LogFileScanInterval    time.Duration `json:"LogFileScanInterval"` // 秒
@@ -267,18 +270,45 @@ func (l *Logger) makeFile() {
 		}
 
 		fullPath := filepath.Join(l.config.LogFileOutputDir, fileName+l.config.LogFileNameExt)
-		l.f, err = os.OpenFile(fullPath, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666)
-		if err != nil {
+
+		if l.f, err = os.OpenFile(fullPath, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666); err != nil {
 			log.Println("=========== create log file failed!!! ========", err)
-			return
 		}
 	}
 
 	l.updateWriter()
+
+	l.builtInLoggers[INFO].Output(3, "============Welcome to user lets-go-go logger===============")
+
+	l.updateFiles()
 }
 
 // updateWriter update writer
 func (l *Logger) updateFiles() {
+
+	// remove files
+	if l.config.LogFileMaxCount > 0 {
+		if list, err := ioutil.ReadDir(l.config.LogFileOutputDir); err == nil {
+
+			var logList []os.FileInfo
+			for _, fi := range list {
+				if path.Ext(fi.Name()) == l.config.LogFileNameExt {
+					logList = append(logList, fi)
+				}
+			}
+			sort.Slice(logList, func(i, j int) bool { return logList[i].ModTime().Before(logList[j].ModTime()) })
+
+			if len(logList) > l.config.LogFileMaxCount {
+				for index := 0; index < len(logList)-l.config.LogFileMaxCount; index++ {
+					toDeleteFilePath := filepath.Join(l.config.LogFileOutputDir, logList[index].Name())
+
+					os.Remove(toDeleteFilePath)
+					txt := fmt.Sprintf("remove older log files:%v, modtime=%v", toDeleteFilePath, logList[index].ModTime())
+					l.builtInLoggers[INFO].Output(3, txt)
+				}
+			}
+		}
+	}
 }
 
 // updateWriter update writer
