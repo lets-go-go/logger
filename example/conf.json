@@ -1,0 +1,13 @@
+{
+    "Level":                  INFO,
+	"OutputType":             Console | File,
+	"LogFileRollingType":     RollingDaily,
+	"LogFileOutputDir":       ".",
+	"LogFileName":            "app",
+	"LogFileNameDatePattern": "20060102",
+	"LogFileNameExt":         ".log",
+	"LogFileMaxCount":        5,
+	"LogFileMaxSize":         5,
+	"LogFileMaxSizeUnit":     "MB",
+	"LogFileScanInterval":    1 ,
+}

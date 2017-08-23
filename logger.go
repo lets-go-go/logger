@@ -2,7 +2,6 @@ package logger
 
 import (
 	"fmt"
-	"os"
 )
 
 var (
@@ -14,11 +13,14 @@ func init() {
 }
 
 // Init 初始化
-func Init(logDir, logFile string, minLevel LEVEL) {
-	DEFAULT_CONFIG.LogFileOutputDir = logDir
-	DEFAULT_CONFIG.LogFileName = logFile
-	DEFAULT_CONFIG.Level = minLevel
-	fwLogger = NewLoggerWithConfig(DEFAULT_CONFIG)
+func Init(config *Config) {
+	fwLogger = NewLoggerWithConfig(config)
+}
+
+// InitWithConf 初始化
+func InitWithConf(conf string) {
+
+	fwLogger = NewLogger(conf)
 }
 
 // Trace logs with the TRACE severity.
@@ -75,6 +77,24 @@ func Infof(format string, v ...interface{}) {
 	fwLogger.Output(INFO, fmt.Sprintf(format, v...))
 }
 
+// Warn logs with the INFO severity.
+// Arguments are handled in the manner of fmt.Print.
+func Warn(v ...interface{}) {
+	fwLogger.Output(WARN, fmt.Sprint(v...))
+}
+
+// Warnln logs with the WARN severity.
+// Arguments are handled in the manner of fmt.Println.
+func Warnln(v ...interface{}) {
+	fwLogger.Output(WARN, fmt.Sprintln(v...))
+}
+
+// Warnf logs with the WARN severity.
+// Arguments are handled in the manner of fmt.Printf.
+func Warnf(format string, v ...interface{}) {
+	fwLogger.Output(WARN, fmt.Sprintf(format, v...))
+}
+
 // Error logs with the ERROR severity.
 // Arguments are handled in the manner of fmt.Print.
 func Error(v ...interface{}) {
@@ -97,19 +117,17 @@ func Errorf(format string, v ...interface{}) {
 // Arguments are handled in the manner of fmt.Print.
 func Fatal(v ...interface{}) {
 	fwLogger.Output(FATAL, fmt.Sprint(v...))
-	os.Exit(1)
 }
 
 // Fatalln logs with the Fatal severity, and ends with os.Exit(1).
 // Arguments are handled in the manner of fmt.Println.
 func Fatalln(v ...interface{}) {
 	fwLogger.Output(FATAL, fmt.Sprintln(v...))
-	os.Exit(1)
+
 }
 
 // Fatalf logs with the Fatal severity, and ends with os.Exit(1).
 // Arguments are handled in the manner of fmt.Printf.
 func Fatalf(format string, v ...interface{}) {
 	fwLogger.Output(FATAL, fmt.Sprintf(format, v...))
-	os.Exit(1)
 }

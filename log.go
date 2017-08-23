@@ -2,7 +2,6 @@ package logger
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -83,7 +82,7 @@ var DEFAULT_CONFIG = &Config{
 type Logger struct {
 	config *Config
 	// 内置logger
-	lg *log.Logger
+	builtInLoggers map[LEVEL]*log.Logger
 	// 日志队列
 	// c chan string
 	// 当前日志文件
@@ -106,6 +105,11 @@ func NewLogger(configStr string) *Logger {
 	l.setConfigStr(configStr)
 	l.init()
 	return l
+}
+
+// DefalutConfig 默认配置
+func DefalutConfig() *Config {
+	return DEFAULT_CONFIG
 }
 
 // NewLoggerWithConfig 通过代码配置
@@ -134,6 +138,17 @@ func (l *Logger) init() {
 		"GB": GB,
 		"TB": TB,
 	}
+
+	flags := log.Ldate | log.Lmicroseconds | log.Lshortfile
+
+	l.builtInLoggers = map[LEVEL]*log.Logger{
+		TRACE: log.New(os.Stdout, l.prefixes[TRACE], flags),
+		DEBUG: log.New(os.Stdout, l.prefixes[DEBUG], flags),
+		INFO:  log.New(os.Stdout, l.prefixes[INFO], flags),
+		WARN:  log.New(os.Stdout, l.prefixes[WARN], flags),
+		ERROR: log.New(os.Stdout, l.prefixes[ERROR], flags),
+		FATAL: log.New(os.Stdout, l.prefixes[FATAL], flags),
+	}
 }
 
 func (l *Logger) setConfigStr(configStr string) {
@@ -159,15 +174,20 @@ func (l *Logger) setConfig(c *Config) {
 
 // Output 输出日志
 func (l *Logger) Output(level LEVEL, txt string) {
+
+	if fwLogger == nil {
+		log.Println("logger not initialed")
+		return
+	}
+
 	if level >= l.config.Level {
-		content := fmt.Sprintf("%s|%s", l.prefixes[level], txt)
 		// l.c <- content
 		if l.config.OutputType&File == File {
-			if l.f == nil || l.lg == nil {
+			if l.f == nil {
 				l.makeFile()
 			}
 
-			l.lg.Output(3, content)
+			l.builtInLoggers[level].Output(3, txt)
 		}
 	}
 }
@@ -212,14 +232,24 @@ func (l *Logger) makeFile() {
 			return
 		}
 	}
-	if l.lg == nil {
-		logWriters := []io.Writer{l.f}
-		if l.config.OutputType&Console == Console {
 
-			logWriters = append(logWriters, os.Stdout)
-		}
+	l.updateWriter()
+}
 
-		l.lg = log.New(io.MultiWriter(logWriters...), "", log.Ldate|log.Lmicroseconds|log.Lshortfile)
+// updateWriter update writer
+func (l *Logger) updateFiles() {
+}
+
+// updateWriter update writer
+func (l *Logger) updateWriter() {
+	logWriters := []io.Writer{l.f}
+	if l.config.OutputType&Console == Console {
+
+		logWriters = append(logWriters, os.Stdout)
+	}
+
+	for _, builtInLogger := range l.builtInLoggers {
+		builtInLogger.SetOutput(io.MultiWriter(logWriters...))
 	}
 }
 
@@ -228,54 +258,28 @@ func (l *Logger) checkFile() {
 	if l.config.OutputType == Console || l.f == nil {
 		return
 	}
-	needRecreate, newFileName := false, l.config.LogFileName
+	needRecreate := false
 	if l.config.LogFileRollingType&RollingDaily == RollingDaily {
-
 		currentDate := time.Now().Format(l.config.LogFileNameDatePattern)
-
 		if currentDate != l.fileDate {
 			needRecreate = true
-
-			l.fileDate = currentDate
-			newFileName += "-" + currentDate
-			l.resetFileSeq()
 		}
-	}
-
-	if l.config.LogFileRollingType&RollingSize == RollingSize {
+	} else if l.config.LogFileRollingType&RollingSize == RollingSize {
 		info, err := os.Stat(filepath.Join(l.config.LogFileOutputDir, l.f.Name()))
 		if err != nil {
 			log.Println("============= check file size failed!!! ==========", err)
 			return
 		}
 		if info.Size() >= l.config.LogFileMaxSize {
-			if needRecreate {
-				newFileName += "-" + l.genFileSeq()
-			} else {
-				needRecreate = true
-				dateString := time.Now().Format(l.config.LogFileNameDatePattern)
-				newFileName += "-" + dateString
-				newFileName += "-" + l.genFileSeq()
-			}
+			needRecreate = true
 		}
 	}
 
 	if needRecreate {
 		l.f.Close()
-		var err error
-		fullPath := filepath.Join(l.config.LogFileOutputDir, newFileName+l.config.LogFileNameExt)
-		if l.f, err = os.OpenFile(fullPath, os.O_RDWR|os.O_APPEND|os.O_CREATE, 0666); err != nil {
-			log.Println("=========== create log file failed!!! ========", err)
-			return
-		}
+		l.f = nil
 
-		logWriters := []io.Writer{l.f}
-		if l.config.OutputType&Console == Console {
-
-			logWriters = append(logWriters, os.Stdout)
-		}
-
-		l.lg.SetOutput(io.MultiWriter(logWriters...))
+		l.makeFile()
 	}
 }
 
@@ -283,10 +287,8 @@ func (l *Logger) checkFile() {
 func (l *Logger) genFileSeq() string {
 	seqFile := filepath.Join(l.config.LogFileOutputDir, ".seq")
 	if IsFileExists(seqFile) {
-		bytes, err := ioutil.ReadFile(seqFile)
-		if err == nil {
-			seq, err := strconv.Atoi(string(bytes))
-			if err == nil {
+		if bytes, err := ioutil.ReadFile(seqFile); err == nil {
+			if seq, err := strconv.Atoi(string(bytes)); err == nil {
 				ioutil.WriteFile(seqFile, []byte(strconv.Itoa(seq+1)), 0666)
 				return strconv.Itoa(seq + 1)
 			}
