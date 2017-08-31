@@ -94,7 +94,7 @@ type Config struct {
 
 // DEFAULT_CONFIG 默认配置
 var DEFAULT_CONFIG = &Config{
-	Level:                  INFO,
+	Level:                  DEBUG,
 	OutputType:             Console, // Console | File
 	LogFileRollingType:     RollingDaily,
 	LogFileOutputDir:       ".",
