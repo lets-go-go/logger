@@ -5,13 +5,16 @@ import (
 	"os/signal"
 
 	"github.com/lets-go-go/logger"
+	"github.com/robot4s/wechat/appconf"
 )
 
 func main() {
 	config := logger.DefalutConfig()
-	config.Level = logger.DEBUG
+	config.Level = logger.LEVEL(appconf.LogLevel)
 	config.LogFileRollingType = logger.RollingDaily
-	config.LogFileMaxCount = 1
+	config.LogFileOutputDir = appconf.LogDir
+	// config.LogFileName = "test"
+	config.LogFileMaxCount = 5
 	// config.LogFileMaxSize = 5
 	// config.LogFileMaxSizeUnit = "MB"
 

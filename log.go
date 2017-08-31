@@ -95,10 +95,10 @@ type Config struct {
 // DEFAULT_CONFIG 默认配置
 var DEFAULT_CONFIG = &Config{
 	Level:                  INFO,
-	OutputType:             Console | File,
+	OutputType:             Console, // Console | File
 	LogFileRollingType:     RollingDaily,
 	LogFileOutputDir:       ".",
-	LogFileName:            "app",
+	LogFileName:            "",
 	LogFileNameDatePattern: "20060102",
 	LogFileNameExt:         ".log",
 	LogFileMaxCount:        5,
@@ -133,7 +133,14 @@ type Logger struct {
 func NewLogger(configStr string) *Logger {
 	// 默认配置
 	l := &Logger{}
-	l.setConfigStr(configStr)
+	var config Config
+	json.Unmarshal([]byte(configStr), &config)
+
+	if err := json.Unmarshal([]byte(configStr), &config); err != nil {
+		l.config = DEFAULT_CONFIG
+		log.Println("=========== parse config failed, use default config!!! ==========", err)
+	}
+
 	l.init()
 	return l
 }
@@ -147,7 +154,7 @@ func DefalutConfig() *Config {
 func NewLoggerWithConfig(config *Config) *Logger {
 	// 默认配置
 	l := &Logger{}
-	l.setConfig(config)
+	l.config = config
 	l.init()
 	return l
 }
@@ -169,6 +176,19 @@ func (l *Logger) init() {
 		FATAL: log.New(os.Stdout, prefixes[FATAL], flags),
 	}
 
+	l.Output(INFO, "============Welcome to use lets-go-go logger===============")
+
+	if l.config.LogFileName != "" {
+		l.config.OutputType = Console | File
+
+		unit := strings.ToUpper(l.config.LogFileMaxSizeUnit)
+		l.config.LogFileMaxSize = l.config.LogFileMaxSize * int64(units[unit])
+		l.config.LogFileScanInterval = l.config.LogFileScanInterval * time.Second
+		l.startFileCheckMonitor()
+	} else {
+		l.Output(WARN, "~~~~~~~~~~~~~ output file not set!!! ~~~~~~~~~~~~~")
+	}
+
 	if !l.config.Sync {
 		l.c = make(chan logContent, 5000)
 		// log write
@@ -187,51 +207,28 @@ func (l *Logger) init() {
 
 }
 
-func (l *Logger) setConfigStr(configStr string) {
-	var config Config
-	json.Unmarshal([]byte(configStr), &config)
-
-	if err := json.Unmarshal([]byte(configStr), &config); err != nil {
-		log.Println("=========== parse config failed!!! ==========", err)
-		return
-	}
-
-	unit := strings.ToUpper(config.LogFileMaxSizeUnit)
-	config.LogFileMaxSize = config.LogFileMaxSize * int64(units[unit])
-
-	config.LogFileScanInterval = config.LogFileScanInterval * time.Second
-	l.setConfig(&config)
-}
-
-func (l *Logger) setConfig(c *Config) {
-	l.config = c
-
-	unit := strings.ToUpper(l.config.LogFileMaxSizeUnit)
-	l.config.LogFileMaxSize = l.config.LogFileMaxSize * int64(units[unit])
-	l.config.LogFileScanInterval = l.config.LogFileScanInterval * time.Second
-	l.startFileCheckMonitor()
-}
-
 // Output 输出日志
 func (l *Logger) Output(level LEVEL, txt string) {
 
-	if fwLogger == nil {
-		log.Println("logger not initialed")
-		return
-	}
-
 	if level >= l.config.Level {
+
 		// l.c <- content
 		if l.config.OutputType&File == File {
+
+			if fwLogger == nil {
+				log.Println("logger not initialed")
+				return
+			}
+
 			if l.f == nil {
 				l.makeFile()
 			}
+		}
 
-			if l.config.Sync {
-				l.builtInLoggers[level].Output(3, txt)
-			} else {
-				l.c <- logContent{level, txt}
-			}
+		if l.config.Sync {
+			l.builtInLoggers[level].Output(3, txt)
+		} else {
+			l.c <- logContent{level, txt}
 		}
 	}
 }
@@ -277,8 +274,6 @@ func (l *Logger) makeFile() {
 	}
 
 	l.updateWriter()
-
-	l.builtInLoggers[INFO].Output(3, "============Welcome to user lets-go-go logger===============")
 
 	l.updateFiles()
 }
