@@ -9,17 +9,12 @@ var (
 )
 
 func init() {
-
+	fwLogger = NewLoggerWithConfig(DEFAULT_CONFIG)
 }
 
 // Init 初始化
 func Init(config *Config) {
-	if config == nil {
-		fwLogger = NewLoggerWithConfig(DEFAULT_CONFIG)
-	} else {
-		fwLogger = NewLoggerWithConfig(config)
-	}
-
+	fwLogger = NewLoggerWithConfig(config)
 }
 
 // InitWithConf 初始化
